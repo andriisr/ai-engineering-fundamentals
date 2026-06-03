@@ -49,14 +49,14 @@ Browser ──WebSocket──→ Worker (routeAgentRequest) ──→ Durable Ob
 
 Excalidraw represents everything on the canvas as JSON elements. Each element has a `type`, position (`x`, `y`), dimensions (`width`, `height`), and styling properties. Here are the element types our agent can create:
 
-| Type | Use For |
-|------|---------|
-| `rectangle` | Boxes, containers, cards |
-| `ellipse` | Circles, ovals |
-| `diamond` | Decision points, conditions |
-| `text` | Labels, descriptions |
-| `arrow` | Connections, flow direction |
-| `line` | Dividers, connections without direction |
+| Type        | Use For                                 |
+| ----------- | --------------------------------------- |
+| `rectangle` | Boxes, containers, cards                |
+| `ellipse`   | Circles, ovals                          |
+| `diamond`   | Decision points, conditions             |
+| `text`      | Labels, descriptions                    |
+| `arrow`     | Connections, flow direction             |
+| `line`      | Dividers, connections without direction |
 
 Every element shares a base set of properties:
 
@@ -78,6 +78,7 @@ Some element types have additional properties. Text elements have `text`, `fontS
 We use the [Vercel AI SDK](https://sdk.vercel.ai) (`ai` package) to interact with the LLM. The AI SDK provides a unified interface across LLM providers and has first class support for tool use with Zod schemas.
 
 You define tools using the `tool()` helper. Each tool has:
+
 - A `description` that tells the LLM when to use it
 - An `inputSchema` defined with Zod that validates the arguments
 - An `execute` function that runs when the LLM calls the tool
@@ -108,7 +109,7 @@ npm install agents ai @ai-sdk/openai @cloudflare/ai-chat zod
 Make sure your `.dev.vars` has your OpenAI API key:
 
 ```
-OPENAI_API_KEY=sk-your-openai-key-here
+GOOGLE_API_KEY=sk-your-openai-key-here
 ```
 
 ### `src/schemas.ts` (new file)
@@ -191,46 +192,74 @@ export const tools = {
     description:
       "Generate a complete diagram as an array of Excalidraw elements. Use this when the user asks you to create, draw, or design a new diagram. Return all elements needed including shapes, text labels, and arrows/lines connecting them. Position elements with x,y coordinates and give each a unique id.",
     inputSchema: z.object({
-      elements: z.array(
-        z.object({
-          id: z.string().describe("Unique identifier"),
-          type: z.enum(["rectangle", "ellipse", "diamond", "text", "arrow", "line"]),
-          x: z.number().describe("X position"),
-          y: z.number().describe("Y position"),
-          width: z.number().describe("Width"),
-          height: z.number().describe("Height"),
-          strokeColor: z.string().default("#1e1e1e").describe("Stroke color (hex)"),
-          backgroundColor: z.string().default("transparent").describe("Fill color"),
-          fillStyle: z.enum(["solid", "hachure", "cross-hatch"]).default("solid"),
-          strokeWidth: z.number().default(2),
-          roughness: z.number().default(1).describe("0 for clean, 1 for sketchy"),
-          opacity: z.number().default(100),
-          text: z.string().optional().describe("Text content (for text elements)"),
-          fontSize: z.number().default(20),
-          fontFamily: z.number().default(1).describe("1=Virgil, 2=Helvetica, 3=Cascadia"),
-          textAlign: z.enum(["left", "center", "right"]).default("center"),
-          points: z
-            .array(z.array(z.number()))
-            .optional()
-            .describe("Array of [x,y] points (for arrow/line elements). Each point is a two number array."),
-          startBinding: z
-            .object({
-              elementId: z.string(),
-              focus: z.number(),
-              gap: z.number(),
-            })
-            .optional()
-            .describe("Bind arrow start to an element"),
-          endBinding: z
-            .object({
-              elementId: z.string(),
-              focus: z.number(),
-              gap: z.number(),
-            })
-            .optional()
-            .describe("Bind arrow end to an element"),
-        })
-      ).describe("Array of Excalidraw elements that make up the diagram"),
+      elements: z
+        .array(
+          z.object({
+            id: z.string().describe("Unique identifier"),
+            type: z.enum([
+              "rectangle",
+              "ellipse",
+              "diamond",
+              "text",
+              "arrow",
+              "line",
+            ]),
+            x: z.number().describe("X position"),
+            y: z.number().describe("Y position"),
+            width: z.number().describe("Width"),
+            height: z.number().describe("Height"),
+            strokeColor: z
+              .string()
+              .default("#1e1e1e")
+              .describe("Stroke color (hex)"),
+            backgroundColor: z
+              .string()
+              .default("transparent")
+              .describe("Fill color"),
+            fillStyle: z
+              .enum(["solid", "hachure", "cross-hatch"])
+              .default("solid"),
+            strokeWidth: z.number().default(2),
+            roughness: z
+              .number()
+              .default(1)
+              .describe("0 for clean, 1 for sketchy"),
+            opacity: z.number().default(100),
+            text: z
+              .string()
+              .optional()
+              .describe("Text content (for text elements)"),
+            fontSize: z.number().default(20),
+            fontFamily: z
+              .number()
+              .default(1)
+              .describe("1=Virgil, 2=Helvetica, 3=Cascadia"),
+            textAlign: z.enum(["left", "center", "right"]).default("center"),
+            points: z
+              .array(z.array(z.number()))
+              .optional()
+              .describe(
+                "Array of [x,y] points (for arrow/line elements). Each point is a two number array.",
+              ),
+            startBinding: z
+              .object({
+                elementId: z.string(),
+                focus: z.number(),
+                gap: z.number(),
+              })
+              .optional()
+              .describe("Bind arrow start to an element"),
+            endBinding: z
+              .object({
+                elementId: z.string(),
+                focus: z.number(),
+                gap: z.number(),
+              })
+              .optional()
+              .describe("Bind arrow end to an element"),
+          }),
+        )
+        .describe("Array of Excalidraw elements that make up the diagram"),
     }),
     execute: async ({ elements }) => {
       return { elements };
@@ -276,16 +305,12 @@ The agent class. This extends `AIChatAgent` which handles WebSocket connections,
 
 ```ts
 import { AIChatAgent } from "@cloudflare/ai-chat";
-import {
-  streamText,
-  convertToModelMessages,
-  stepCountIs,
-} from "ai";
+import { streamText, convertToModelMessages, stepCountIs } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import { tools } from "./tools";
 
 interface Env {
-  OPENAI_API_KEY: string;
+  GOOGLE_API_KEY: string;
 }
 
 const SYSTEM_PROMPT = `You are a diagram design assistant. You help users create and modify diagrams on an Excalidraw canvas.
@@ -306,7 +331,7 @@ When the user asks to modify an element, use the modifyDiagram tool with the ele
 
 export class DesignAgent extends AIChatAgent<Env> {
   async onChatMessage() {
-    const openai = createOpenAI({ apiKey: this.env.OPENAI_API_KEY });
+    const openai = createOpenAI({ apiKey: this.env.GOOGLE_API_KEY });
 
     const result = streamText({
       model: openai("gpt-5.4-mini"),
@@ -327,6 +352,7 @@ export class DesignAgent extends AIChatAgent<Env> {
 ```
 
 This is remarkably concise. The `AIChatAgent` base class gives us:
+
 - `this.messages` — the full chat history, persisted in the DO's SQLite storage
 - `this.env` — access to environment variables (our API key)
 - WebSocket handling, message serialization, and the chat protocol
@@ -356,6 +382,7 @@ new_sqlite_classes = ["DesignAgent"]
 ```
 
 Key changes from the starter:
+
 - Added `compatibility_flags = ["nodejs_compat"]` (required for the Agents SDK and AI SDK)
 - Added `[[durable_objects.bindings]]` to bind the `DesignAgent` class (the binding name must match the class name so `routeAgentRequest` can find it)
 - Added `[[migrations]]` to create SQLite storage for the Durable Object
@@ -372,7 +399,7 @@ export { DesignAgent };
 
 interface Env {
   DesignAgent: DurableObjectNamespace;
-  OPENAI_API_KEY: string;
+  GOOGLE_API_KEY: string;
 }
 
 export default {
@@ -442,7 +469,7 @@ ws.addEventListener("open", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: [userMessage] }),
       },
-    })
+    }),
   );
 });
 
@@ -450,7 +477,10 @@ ws.addEventListener("message", (event) => {
   const data = event.data;
   try {
     const parsed = JSON.parse(data);
-    if (parsed.type === "cf_agent_use_chat_response" && parsed.id === requestId) {
+    if (
+      parsed.type === "cf_agent_use_chat_response" &&
+      parsed.id === requestId
+    ) {
       process.stdout.write(parsed.body);
       if (parsed.done) {
         console.log("\n");
